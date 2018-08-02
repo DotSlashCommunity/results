@@ -1,148 +1,153 @@
-var os = require('os');
+const os = require('os');
 
-var Sem, Name, Batch, Examination, Institution, InstitutionCode, final = [], len = 0;	// Globals for same set of students.
-var currentSubjects = [];	// Stores the names and subject codes for current set of students.
-var previousResult = {};
 
-module.exports = function (data, subjectArray, db, cb) {
-	var regexForStudentsLinux = /\d{11}([^]*?)\n\w?\*?(\(..?\))?\n\w\w?\n\r/g;
-	var regexForStudentsWindows = /\n\d{11}([^]*?)\n\w\w?\*?(\(..?\))?\r\n\w\w?\r/g;
-	// console.log(data)
-	// process.exit()
-	var regexForStudents;
-	if (os.platform() === 'linux') {
-		regexForStudents = regexForStudentsLinux;
-	} else {
-		regexForStudents = regexForStudentsWindows;
-	}
-	data.forEach((students) => {
-		// console.log(students)
-		var studentList = students.match(regexForStudents);
-		if (studentList) {
-			studentList = studentList.map((ele) => (ele.split(os.EOL)));
-			// console.log(studentList)
-			Sem = students.match(/Sem\.\/Year: (\d+)/)[1];
-			Name = students.match(/Programme Name: ([^]*?) Sem/)[1];
-			if (students.match(/Batch: ([^]*?) Exa/)) {
-				Batch = students.match(/Batch: ([^]*?) Exa/)[1];
-				// if (parseInt(Batch) < 2013) {
-				// 	return;
-				// }				
-			} else {
-				return;	
-			}
-			// Institution = students.match(/Institution: ([^]*?)\r/)[1];
-			Institution = students.match(new RegExp('Institution: ([^]*?)' + os.EOL))[1];
-			InstitutionCode = students.match(/Institution Code: (\d+)/)[1];
-			// Examination = students.match(/Examination: ([^]*?)\r\n/)[1];
-			Examination = students.match(new RegExp('Examination: ([^]*?)' + os.EOL))[1];
-			if (matchSubjectList()) {
-				currentSubjects = subjectArray.shift();
-			}
-			studentList.forEach((student) => {
-				console.log(student)
-				if (os.platform() === 'linux') {
-					// student.shift();
-					student.pop();
-				}
-				var obj = studentBlueprint();
-				if (os.platform() === 'linux') {
-					obj.EnrollmentNumber = student.shift();
-				} else {
-					obj.EnrollmentNumber = student.shift().substr(1);
-				}
-				obj.Name = student.shift();
-				obj.CreditsSecured = student.pop().match(/(\w+)/);
-				try {
-					obj.CreditsSecured = obj.CreditsSecured[1];
-				} catch (e) {
-					obj.CreditsSecured = '';
-				}
-				var present = false;
-				while (student.length) {
-					var marks = marksBlueprint();
-					var id = student.shift();
-					marks.Id = id.match(/\w+/)[0];
-					marks.Name = getNameFromCurrentList(marks.Id);
-					try {
-						marks.Credits = id.match(/\((\w+)\)/)[1];
-					} catch (e) {  }
-					if (student.length) {
-						marksValue = student.shift().split(' ');
-					} else {
-						return;
-					}
-					marks.Internal = marksValue[0];
-					marks.External = marksValue[1];
-					var total = student.shift();
-					if (!total) continue;
-					marks.Total = parseInt(total.match(/\w+/)[0]);
-					if (isNaN(marks.Total)) {
-						marks.Total = 0;
-					} else {
-						present = true;
-					}
-					if (total.match(/\((.+)\)/)) {
-						marks.Grade = total.match(/\((.+)\)/)[1];
-					}
-					obj.Marks.push(marks);
-				}
-				if (!present) {
-					return;
-				}
-				db.collection('Student').insert(obj, function (err) {
-					if (err) {
-						console.error(err);
-					}
-				});
-				final[len++] = obj;
-			});
-		}	
-	});
-	cb(final);
-}
+var Sem             = null;
+var Name            = null;
+var Batch           = null;
+var Examination     = null;
+var Institution     = null;
+var InstitutionCode = null;
 
-var studentBlueprint = function () {
-	return {
-		'Semester': Sem,
-		'Programme': Name,
-		'Batch': Batch,
-		'Examination': Examination,
-		'Institution': Institution,
-		'CollegeCode': InstitutionCode,
-		'EnrollmentNumber': null,
-		'Name': null,
-		'Marks': [],
-		'CreditsSecured': null
-	}
-}
+var len             = 0;
+var final           = [];
+var currentSubjects = [];
+var previousResult  = {};
 
-var marksBlueprint = function () {
-	return {
-		'Id': null,
-		'Credits': null,
-		'Internal': null,
-		'External': null,
-		'Total': null,
-		'Grade': null
-	}
-}
+module.exports = function (data, subjects, db, callback) {
+    const regexForStudentsLinux = /\d{11}([^]*?)\n\w?\*?(\(..?\))?\n\w\w?\n\r/g;
+    const regexForStudentsWindows = /\n\d{11}([^]*?)\n\w\w?\*?(\(..?\))?\r\n\w\w?\r/g;
 
-var matchSubjectList = function () {
-	var currentResult = studentBlueprint();
-	if (JSON.stringify(currentResult) === JSON.stringify(previousResult)) {
-		return false;
-	}
-	previousResult = currentResult;
-	return true;
-}
+    const regexForStudents = (os.platform() === 'linux')?
+                                regexForStudentsLinux:
+                                regexForStudentsWindows;
 
-var getNameFromCurrentList = function (id) {
-	// console.log('Required', id)
-	for (var i = 0; i < currentSubjects.length; i++) {
-		// console.log('Current', currentSubjects[i]['_id'])
-		if (currentSubjects[i]['_id'] === id) {
-			return currentSubjects[i]['Name'];
-		}
-	}
-}
+    data.forEach((students) => {
+        var studentList = students.match(regexForStudents);
+
+        if (studentList) {
+            studentList = studentList.map((ele) => (ele.split(os.EOL)));
+
+            Sem = students.match(/Sem\.\/Year: (\d+)/)[1];
+            Name = students.match(/Programme Name: ([^]*?) Sem/)[1];
+
+            if (students.match(/Batch: ([^]*?) Exa/))
+                Batch = students.match(/Batch: ([^]*?) Exa/)[1];
+            else
+                return;
+
+            Institution = students.match(new RegExp('Institution: ([^]*?)' + os.EOL))[1];
+            InstitutionCode = students.match(/Institution Code: (\d+)/)[1];
+
+            Examination = students.match(new RegExp('Examination: ([^]*?)' + os.EOL))[1];
+
+            if (matchSubjectList())
+                currentSubjects = subjects.shift();
+
+            studentList.forEach((student) => {
+                console.log(student);
+
+                if (os.platform() === 'linux')
+                    student.pop();
+
+                var newStudent = new Student();
+                newStudent.EnrollmentNumber = (os.platform() === 'linux')?
+                                                student.shift():
+                                                student.shift().substr(1);
+
+                newStudent.Name = student.shift();
+                newStudent.CreditsSecured = student.pop().match(/(\w+)/);
+                newStudent.CreditsSecured = newStudent.CreditsSecured[1] || '';
+
+                var present = false;
+                while (student.length) {
+                    const marks = new Marks();
+                    const id = student.shift();
+
+                    marks.Id = id.match(/\w+/)[0];
+                    marks.Name = getNameFromCurrentList(marks.Id);
+
+                    try { marks.Credits = id.match(/\((\w+)\)/)[1]; }
+                    catch (_) {}
+
+                    if (student.length)
+                        marksValue = student.shift().split(' ');
+                    else
+                        return;
+
+                    marks.Internal = marksValue[0];
+                    marks.External = marksValue[1];
+
+                    var total = student.shift();
+                    if (!total) continue;
+
+                    marks.Total = parseInt(total.match(/\w+/)[0]);
+                    if (isNaN(marks.Total))
+                        marks.Total = 0;
+                    else
+                        present = true;
+
+                    if (total.match(/\((.+)\)/))
+                        marks.Grade = total.match(/\((.+)\)/)[1];
+
+                    newStudent.Marks.push(marks);
+                }
+
+                if (!present)
+                    return;
+
+                // Push the student data to the mongo database.
+                db.collection('Student').insert(newStudent, (err) => {
+                    if (err) console.error(err);
+                });
+
+                final[len++] = newStudent;
+            });
+        }
+    });
+
+    callback(final);
+};
+
+
+const Student = function() {
+    this.Semester           = Sem;
+    this.Programme          = Name;
+    this.Batch              = Batch;
+    this.Examination        = Examination;
+    this.Institution        = Institution;
+    this.CollegeCode        = InstitutionCode;
+    this.EnrollmentNumber   = null;
+    this.Name               = null;
+    this.Marks              = [];
+    this.CreditsSecured     = null;
+};
+
+
+const Marks = function () {
+    this.Id         = null;
+    this.Credits    = null;
+    this.Internal   = null;
+    this.External   = null;
+    this.Total      = null;
+    this.Grade      = null;
+};
+
+
+const matchSubjectList = function() {
+    var currentResult = new Student();
+    if (JSON.stringify(currentResult) === JSON.stringify(previousResult)) {
+        return false;
+    }
+
+    previousResult = currentResult;
+    return true;
+};
+
+
+const getNameFromCurrentList = function(id) {
+    for (var i = 0; i < currentSubjects.length; i++) {
+        if (currentSubjects[i]._id === id) {
+            return currentSubjects[i].Name;
+        }
+    }
+};
