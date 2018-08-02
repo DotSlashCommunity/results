@@ -4,7 +4,8 @@ A single page [web app](https://outcome-ipu.herokuapp.com) that provides results
 
 ## Folder Structure
 
-After creation, your project should look like this:
+Your project should look like this initially:
+
 ![structure](Screenshots/folder_struc.jpg)
 
 
